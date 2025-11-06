@@ -22,6 +22,21 @@ import scala.collection.immutable.ListMap
 //       Users should try to understand the functionality of the AbstractConfig before proceeding
 //       with the TutorialConfigs below
 
+
+// //Sha3を作成してみる。
+// class TutorialSha3Config extends Config(
+//   new sha3.WithSha3Accel ++
+//   new freechips.rocketchip.rocket.WithNHugeCores(1) ++
+//   new chipyard.config.AbstractConfig
+// )
+
+
+
+
+
+
+
+
 // Tutorial Phase 1: Configure the cores, caches
 class TutorialStarterConfig extends Config(
   // CUSTOMIZE THE CORE
@@ -34,6 +49,10 @@ class TutorialStarterConfig extends Config(
   // Uncomment this line, and specify a size if you want to have a L2
   // new freechips.rocketchip.subsystem.WithInclusiveCache(nBanks=1, nWays=4, capacityKB=128) ++
 
+  new boom.v3.common.WithNSmallBooms(1) ++
+  // new freechips.rocketchip.subsystem.WithNHugeCores(1) ++
+  new freechips.rocketchip.rocket.WithNHugeCores(1) ++
+  new freechips.rocketchip.subsystem.WithInclusiveCache() ++
   new chipyard.config.AbstractConfig
 )
 
@@ -49,6 +68,9 @@ class TutorialMMIOConfig extends Config(
   new freechips.rocketchip.rocket.WithNHugeCores(1) ++
   new chipyard.config.AbstractConfig
 )
+
+
+
 
 
 // Tutorial Phase 5: Map a multicore heterogeneous SoC with multiple cores and memory-mapped accelerators

@@ -172,6 +172,10 @@ lazy val chipyard = {
   val baseProjects: Seq[ProjectReference] =
     Seq(
       testchipip, rocketchip, boom, rocketchip_blocks, rocketchip_inclusive_cache,
+      //編集点
+      // sha3, 
+      acustom,
+
       icenet, tracegen,
       constellation, barf, shuttle, rerocc,
     ).map(sbt.Project.projectToRef) ++
@@ -257,6 +261,20 @@ lazy val chipyard = {
 
   cy
 }
+
+//色々カスタム
+
+// lazy val sha3 = (project in file("generators/sha3"))
+//   .dependsOn(rocketchip, midas_target_utils)
+//   .settings(libraryDependencies ++= rocketLibDeps.value)
+//   // .settings(chiselTestSettings)
+//   .settings(chiseltest)
+//   .settings(commonSettings)
+
+lazy val acustom = (project in file("generators/acustom"))
+  .dependsOn(rocketchip)
+  .settings(libraryDependencies ++= rocketLibDeps.value)
+  .settings(commonSettings)
 
 lazy val compressacc = withInitCheck((project in file("generators/compress-acc")), "compress-acc")
   .dependsOn(rocketchip)
