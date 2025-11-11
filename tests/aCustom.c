@@ -21,7 +21,6 @@ int main(void){
     // unsigned long hello = 0;
 
     unsigned long found = 12; 
-    asm volatile("fence");
 
     uintptr_t addr = (uintptr_t)&str1;
     printf("Address of c = %p\n", (void*)&str1);
@@ -35,6 +34,9 @@ int main(void){
 
 
     printf("well, Im Starting");
+
+    asm volatile("fence");
+
     ROCC_INSTRUCTION_DSS(0, found, &str1, &str2, 0);
 
     printf("%lu",found);
