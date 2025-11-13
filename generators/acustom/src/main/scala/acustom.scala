@@ -19,6 +19,8 @@ import freechips.rocketchip.tilelink._
 // }
 
 
+
+
 class WithaCustomAccel extends Config((site, here, up) => {
 
     //parameters  の追加も出来る。
@@ -31,7 +33,7 @@ class WithaCustomAccel extends Config((site, here, up) => {
     )
 })
 
-class aCustomAccel(opcodes: OpcodeSet)(implicit p: Parameters) extends LazyRoCC(opcodes = opcodes){
+class aCustomAccel(opcodes: OpcodeSet)(implicit p: Parameters) extends LazyRoCC(opcodes){
   override lazy val module = new aCustomAccelImp(this)
   override val atlNode = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLMasterParameters.v1("aCustomTileLink")))))
 
@@ -48,7 +50,7 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val s_idle  :: s_acq :: s_gnt :: s_acq2 :: s_gnt2 :: s_process :: s_check :: s_resp :: Nil = Enum(8)
   val state = RegInit(s_idle)
   val resp_rd = Reg(chiselTypeOf(io.resp.bits.rd))
-  val retur = Reg(UInt(xLen.W))
+  val ret = Reg(UInt(xLen.W))
 
 
 //addr計算
@@ -60,7 +62,7 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val addr = RegInit(0.U(coreMaxAddrBits.W))
   val offset = addr(blockOffset - 1, 0)
   val addr_block = addr(coreMaxAddrBits - 1, blockOffset)
-  val nex_addr = (addr_block + 1.U) << blockOffset.U
+  val next_addr = (addr_block + 1.U) << blockOffset.U
 
   val recv_data = Reg(UInt(cacheDataBits.W))
   val recv_beat = RegInit(0.U(log2Up(cacheDataBeats+1).W))
@@ -71,6 +73,8 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val addr2 = RegInit(0.U(coreMaxAddrBits.W))
   val offset2 = addr2(blockOffset - 1, 0)
   val addr2_block = addr2(coreMaxAddrBits - 1, blockOffset)
+  val next_addr2 = (addr2_block + 1.U) << blockOffset.U
+
 
   val recv_data2 = Reg(UInt(cacheDataBits.W))
   val recv_beat2 = RegInit(0.U(log2Up(cacheDataBeats+1).W))
@@ -78,6 +82,8 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
   val bool_table = RegInit(VecInit(Seq.fill(cacheDataBits/8)(false.B)))
   val bool_table_next = RegInit(VecInit(Seq.fill(cacheDataBits/8)(false.B)))
+
+
 
   val zero_match  = data_bytes.map(_ === 0.U)
   val zero_match2 = data_bytes2.map(_ === 0.U)
@@ -87,8 +93,14 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val zero_found = zero_match.reduce(_ || _)
   val zero_found2 = zero_match2.reduce(_ || _)
 
+  val needle = Reg(UInt(8.W))
+  val needle_match = data_bytes.map(_ === needle)
+  val needle_found = needle_match.reduce(_ || _)
+
+
   val finished = Reg(Bool())    
 
+  
 
   /*
   順番　
@@ -135,9 +147,13 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
     printf(p"Fire! Start\n")
     addr := io.cmd.bits.rs1
     addr2 := io.cmd.bits.rs2
-    retur := 0.U
+    finished := false.B
+    ret := 0.U
     resp_rd := io.cmd.bits.inst.rd
     state := s_acq
+    printf(p"state is $state\n")
+    printf(p"\n")
+
   }
 
   val (tl_out, edgesOut) = outer.atlNode.out(0)
@@ -149,71 +165,122 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
 
   when (tl_out.a.fire) {
-    state := Mux(state === s_acq, s_gnt, s_gnt2)
     printf(p"Got tl_out.a!\n")
+    state := Mux(state === s_acq, s_gnt, s_gnt2)
+    printf(p"state is $state\n")
+    printf(p"\n")
+
   }
   
   tl_out.d.ready := (state === s_gnt || state === s_gnt2)
   val gnt = tl_out.d.bits
 
   when (tl_out.d.fire) {
+    printf(p"Got tl_out.d.fire!\n")
+    printf(p"state is $state\n")
+
     when(state === s_gnt){
+      printf(p"recv_beat + 1.U, recv_data := gnt.data\n")
       recv_beat := recv_beat + 1.U
       recv_data := gnt.data
       state := s_acq2
+      printf(p"state is $state\n")
 
     } .elsewhen(state === s_gnt2){
+      printf(p"recv_beat2 + 1.U, recv_data2 := gnt.data\n")
       recv_beat2 := recv_beat2 + 1.U
       recv_data2 := gnt.data
       state := s_process
+      printf(p"state is $state\n")
     }
-    printf(p"Got tl_out.d.fire!\n")
+    printf("gnt.data = %b\n", gnt.data)
+
+    printf(p"\n")
+
   }
 
-
-  // val data_bytes = VecInit(Seq.tabulate(cacheDataBits/8) { i => recv_data2(8 * (i + 1) - 1, 8 * i) })
 
   when(state === s_process){
+    printf(p"state is $state\n")
 
-  printf(p"s_process\n")
 
-  for(i <- 0 until data_bytes.length - 1){
-    printf("resp_rd = %c\n", data_bytes(i))//print character 
-  }
-  state := s_resp
-
+    //indexいるの？
     // needle = data_bytes(index)
     // index := index + 1.U
 
-    // for(i <- 0 until bool_table.length - 1){
-    //     bool_table_next(i + 1) := Mux(data_bytes2(i)(_ === needle), bool_table(i), false.B)
-    // }
-    // bool_table := bool_table_next
-    // state := s_check
-    // }
 
-    // when(zero_found2){finished := true.B}// sentence reached \0. Word was not found. Go to response
+    //for文を利用せずに、next_boolを外のwireにすることはできないのかな？
+    for(i <- 0 until bool_table.length - 1){
+        bool_table_next(i + 1) := Mux(data_bytes2(i) === needle, bool_table(i), false.B)
 
-    // when(recv_beat === cacheDataBeats.U){
-    //     addr := next_addr
-    //     state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_acq2)
-    //     recv_beat := 0.U
+        printf("")
+        printf("data_bytes = %c\n", data_bytes(i))//print character 
+        printf("data_bytes2 = %c\n", data_bytes2(i))//print character 
 
-    // } .elsewhen(recv_beat2 === cacheDataBeats.U){
-    //     recv_beat2 := 0.U
-    //     addr2 := next_addr2
-    //     state := Mux(finished, s_resp, s_acq1)
-    // }
+        printf(p"0 === ${data_bytes(i) === 0.U}\n")
+        printf(p"0 === ${data_bytes2(i) === 0.U}\n")
+
+    }
+
+    bool_table := bool_table_next
+    state := s_check
   }
 
+  when(state === s_check){
+    printf(p"state is $state\n")
+    when(!needle_found){
+      printf(p"needle not found!\n")
+      // index := 0.U
+      state := s_gnt2
+    }.otherwise{
+      state := s_process
+      // state := s_resp
+      printf(p"needle found!\n")
+
+    }
+
+    when(zero_found){
+      printf(p"zero_found ON!")
+      // when(bool_table(cacheDataBeats)){ //when word was cut halfway
+      //     state := s_conti_process
+      // }
+      when(bool_table.slice(0, cacheDataBeats - 1).reduce(_ || _)){//word was found. Go to response
+          finished := true.B
+          // addr_count := index
+      }
+    }
+
+    when(zero_found2){
+      printf(p"zero_found2 ON!\n")
+
+      finished := true.B
+    }// sentence reached \0. Word was not found. Go to response
+
+    when(recv_beat === cacheDataBeats.U){
+        printf(p"recv_beat === cacheDataBeats.U ON!")
+        recv_beat := 0.U
+        addr := next_addr
+        state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_acq2)
+
+    } .elsewhen(recv_beat2 === cacheDataBeats.U){
+        printf(p"recv_beat2 === cacheDataBeats.U ON!")
+        recv_beat2 := 0.U
+        addr2 := next_addr2
+        state := Mux(finished, s_resp, s_acq)
+    }
+    printf(p"state is $state\n")
+    printf(p"finished is $finished\n")
+    printf(p"\n")
+
+  }
 
 // Response Here
   io.resp.valid := (state === s_resp)
   io.resp.bits.rd := resp_rd
-  
-  io.resp.bits.data := retur
+  io.resp.bits.data := ret
 
   when(io.resp.fire){
+    printf(p"state is $state\n")
 
     printf("addr1 = %b\n", addr)
     printf("addr2 = %b\n", addr2)
@@ -231,13 +298,13 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
     state := s_idle  
     printf("The End")
+    
   }
 
 //これが必要か確認
-  io.mem.req.valid := false.B
-
   io.busy := (state =/= s_idle)
   io.interrupt := false.B
+  io.mem.req.valid := false.B
   tl_out.b.ready := true.B
   tl_out.c.valid := false.B
   tl_out.e.valid := false.B
@@ -282,7 +349,7 @@ class aCustomAccelTestImp(outer: aCustomTestAccel)(implicit p: Parameters) exten
   val s_idle :: s_gnt :: s_acq :: s_resp :: Nil = Enum(4)
   val state = RegInit(s_idle)
   val resp_rd = Reg(chiselTypeOf(io.resp.bits.rd))
-  val retur = Reg(UInt(xLen.W))
+  val ret = Reg(UInt(xLen.W))
 
   // val addr = RegInit(0.U(coreMaxAddrBits.W))
 
