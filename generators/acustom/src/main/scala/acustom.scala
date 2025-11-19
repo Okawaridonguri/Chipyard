@@ -18,6 +18,8 @@ import freechips.rocketchip.tilelink._
 //   TLNode, TLIdentityNode, TLClientNode, TLMasterParameters, TLMasterPortParameters
 // }
 
+// import freechips.rocketchip.util.GTimer
+
 
 
 
@@ -68,6 +70,9 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val recv_beat = RegInit(0.U(log2Up(cacheDataBeats+1).W))
   val data_bytes = VecInit(Seq.tabulate(cacheDataBits/8) { i => recv_data(8 * (i + 1) - 1, 8 * i) })
 
+  val index = RegInit(0.U(xLen.W))
+
+
 
 //addr2 素材
   val addr2 = RegInit(0.U(coreMaxAddrBits.W))
@@ -82,7 +87,7 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
   val bool_table = RegInit(VecInit(Seq.fill(cacheDataBits/8)(false.B)))
   val bool_table_next = RegInit(VecInit(Seq.fill(cacheDataBits/8)(false.B)))
-
+  val bool_table_reduce = bool_table.reduce(_ || _)
 
 
   val zero_match  = data_bytes.map(_ === 0.U)
@@ -93,9 +98,12 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val zero_found = zero_match.reduce(_ || _)
   val zero_found2 = zero_match2.reduce(_ || _)
 
+
+
   val needle = Reg(UInt(8.W))
-  val needle_match = data_bytes.map(_ === needle)
+  val needle_match = data_bytes2.map(_ === needle)
   val needle_found = needle_match.reduce(_ || _)
+
 
 
   val finished = Reg(Bool())    
@@ -142,11 +150,12 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
   io.cmd.ready := (state === s_idle)
 
-  when(io.cmd.fire){
+  when(io.cmd.fire){//state === 0
 
     printf(p"Fire! Start\n")
     addr := io.cmd.bits.rs1
     addr2 := io.cmd.bits.rs2
+
     finished := false.B
     ret := 0.U
     resp_rd := io.cmd.bits.inst.rd
@@ -157,12 +166,14 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   }
 
   val (tl_out, edgesOut) = outer.atlNode.out(0)
-  tl_out.a.valid := (state === s_acq || state === s_acq2)
+  tl_out.a.valid := (state === s_acq) || (state === s_acq2)
   tl_out.a.bits := edgesOut.Get(
                       fromSource = 0.U,
-                      toAddress = addr_block << blockOffset,
+                      toAddress = Mux(state === s_acq, addr_block, addr2_block) << blockOffset,
                       lgSize = lgCacheBlockBytes.U)._2
 
+
+//---------------------s_acq or s_acq2-----------------------
 
   when (tl_out.a.fire) {
     printf(p"Got tl_out.a!\n")
@@ -175,7 +186,8 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   tl_out.d.ready := (state === s_gnt || state === s_gnt2)
   val gnt = tl_out.d.bits
 
-  when (tl_out.d.fire) {
+//---------------------s_gnt or s_gnt2-----------------------
+  when (tl_out.d.fire) {//state === 2 or state === 4
     printf(p"Got tl_out.d.fire!\n")
     printf(p"state is $state\n")
 
@@ -194,67 +206,92 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
       printf(p"state is $state\n")
     }
     printf("gnt.data = %b\n", gnt.data)
+    printf("addr1 = %b\n", addr)
+    printf("addr2 = %b\n", addr2)
+
+// addr  = 0000000010000000000000101010111110000000
+// addr2 = 0000000010000000000000101010111101000000
 
     printf(p"\n")
 
+    needle := data_bytes(index)
+
   }
 
+//---------------------s_process-----------------------
 
-  when(state === s_process){
+  when(state === s_process){//state === 5
     printf(p"state is $state\n")
 
-
-    //indexいるの？
-    // needle = data_bytes(index)
-    // index := index + 1.U
-
-
+//これ外にあったらだめなんかな？
+    printf(p"index === $index\n")
     //for文を利用せずに、next_boolを外のwireにすることはできないのかな？
-    for(i <- 0 until bool_table.length - 1){
-        bool_table_next(i + 1) := Mux(data_bytes2(i) === needle, bool_table(i), false.B)
-
-        printf("")
-        printf("data_bytes = %c\n", data_bytes(i))//print character 
-        printf("data_bytes2 = %c\n", data_bytes2(i))//print character 
-
-        printf(p"0 === ${data_bytes(i) === 0.U}\n")
-        printf(p"0 === ${data_bytes2(i) === 0.U}\n")
-
+    when(index === 0.U){
+      for(i <- 0 until bool_table.length - 1){
+        bool_table(i) := (data_bytes2(i) === needle)
+      }
+    }.otherwise{
+      for(i <- 0 until bool_table.length - 1){
+          bool_table_next(i + 1) := Mux(data_bytes2(i) === needle, bool_table(i), false.B)
+      }
     }
 
+    printf("bool_table =")
+    for (i <- 0 until bool_table.length) {
+      printf("%b", bool_table(i))
+    }
+    printf("\n")
+
+    for(i <- 0 until bool_table.length - 1){
+      printf("%c ===", needle)//print character 
+      printf("%c", data_bytes2(i))//print character 
+      printf(p"       ${needle === data_bytes2(i)}\n")
+    }
+
+    printf(p"bool_table_reduce =  ${bool_table_reduce}\n")//print character 
+    
+    // index := index + 1.U
+    
     bool_table := bool_table_next
     state := s_check
   }
+  //---------------------s_check-----------------------
+
 
   when(state === s_check){
     printf(p"state is $state\n")
-    when(!needle_found){
+
+    when(needle === 0.U){
+      printf("word NULL was reached. Word was found")
+      ret := 1.U
+      state := s_resp
+    }.elsewhen(!needle_found){
       printf(p"needle not found!\n")
-      // index := 0.U
+      index := 0.U
       state := s_gnt2
     }.otherwise{
       state := s_process
+      index := index + 1.U
       // state := s_resp
       printf(p"needle found!\n")
 
     }
 
-    when(zero_found){
-      printf(p"zero_found ON!")
-      // when(bool_table(cacheDataBeats)){ //when word was cut halfway
-      //     state := s_conti_process
-      // }
-      when(bool_table.slice(0, cacheDataBeats - 1).reduce(_ || _)){//word was found. Go to response
-          finished := true.B
-          // addr_count := index
-      }
-    }
+    // when(zero_found){
+    //   printf(p"zero_found ON!")
+    //   // when(bool_table(cacheDataBeats)){ //when word was cut halfway
+    //   //     state := s_conti_process
+    //   // }
+    //   when(bool_table.slice(0, cacheDataBeats - 1).reduce(_ || _)){//word was found. Go to response
+    //       finished := true.B
+    //       // addr_count := index
+    //   }
+    // }
 
     when(zero_found2){
       printf(p"zero_found2 ON!\n")
-
       finished := true.B
-    }// sentence reached \0. Word was not found. Go to response
+    }// sentence contained \0. Go to response
 
     when(recv_beat === cacheDataBeats.U){
         printf(p"recv_beat === cacheDataBeats.U ON!")
@@ -298,6 +335,9 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
     state := s_idle  
     printf("The End")
+    assert(false.B, "Simulation error")
+
+    // printf(p"[cycle=%d]\n", GTimer())
     
   }
 
@@ -346,7 +386,7 @@ class aCustomAccelTestImp(outer: aCustomTestAccel)(implicit p: Parameters) exten
 //TEST
   val cacheParams = tileParams.dcache.get
 
-  val s_idle :: s_gnt :: s_acq :: s_resp :: Nil = Enum(4)
+  val s_idle :: s_acq :: s_gnt :: s_check :: s_resp :: Nil = Enum(5)
   val state = RegInit(s_idle)
   val resp_rd = Reg(chiselTypeOf(io.resp.bits.rd))
   val ret = Reg(UInt(xLen.W))
@@ -360,9 +400,27 @@ class aCustomAccelTestImp(outer: aCustomTestAccel)(implicit p: Parameters) exten
   val addr = RegInit(0.U(coreMaxAddrBits.W))
   val addr2 = RegInit(0.U(coreMaxAddrBits.W))
 
+  val recv_data = Reg(UInt(cacheDataBits.W))
+  val recv_beat = RegInit(0.U(log2Up(cacheDataBeats+1).W))
+  val data_bytes = VecInit(Seq.tabulate(cacheDataBits/8) { i => recv_data(8 * (i + 1) - 1, 8 * i) })
+
+
   val offset = addr(blockOffset - 1, 0)
   val addr_block = addr(coreMaxAddrBits - 1, blockOffset)
+
+  val index = RegInit(0.U(xLen.W))
+
   
+  val (tl_out, edgesOut) = outer.atlNode.out(0)
+  
+  when (tl_out.a.fire) {
+    printf(p"Got tl_out.a!\n")
+    state := s_gnt
+    printf(p"state is $state\n")
+    printf(p"\n")
+
+  }
+
 
 
   io.cmd.ready := (state === s_idle)
@@ -375,25 +433,46 @@ class aCustomAccelTestImp(outer: aCustomTestAccel)(implicit p: Parameters) exten
     printf(p"Fire! Start\n")
   }
 
+
+  tl_out.d.ready := (state === s_gnt)
+  val gnt = tl_out.d.bits
+
+  when(tl_out.d.fire){
+      recv_beat := recv_beat + 1.U
+      recv_data := gnt.data
+      state := s_acq
+  }
+
+  when(state === s_check){
+    when(index === 6.U){
+      state := s_resp
+    }.otherwise{
+      state === s_gnt
+      index := index + 1.U
+      printf("%b", index)
+    }
+    printf("\n")
+
+    for(i <- 0 until 5){
+      print("%b", data_bytes(i))
+    }
+    printf("\n")
+  }
+
   io.resp.valid := (state === s_resp)
   io.resp.bits.rd := resp_rd
 
 
-
-
   when(io.resp.fire){
-    printf("addr  = %b\n", addr)//addr1 = 0000000000000000000000000000000001000001
-    printf("addr2 = %b\n", addr2)
+    printf("The end") 
+    state := s_idle  
+  }
 
-    printf("resp_rd = %b\n", resp_rd)//addr1 = 01010
+  io.busy := (state =/= s_idle)
+  io.mem.req.valid := false.B
+  io.interrupt := false.B
 
-    printf("offset = %b\n", offset)
-    printf("blockOffset = %b\n", blockOffset.U)
-    printf("beatOffset = %b\n", beatOffset.U)
-
-    printf("addr_block << blockOffset = %b\n", addr_block << blockOffset)
-
-    printf("addr_block = %b\n", addr_block)
+}
 
 
 /* &
@@ -419,17 +498,6 @@ addr_block = 0000000000000000000000000000000001
 
 
     */
-
-    printf("The end") 
-    state := s_idle  
-  }
-
-  io.busy := (state =/= s_idle)
-  io.mem.req.valid := false.B
-  io.interrupt := false.B
-  
-
-}
 
 
 
