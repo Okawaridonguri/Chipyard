@@ -53,7 +53,6 @@ class aCustomAccel(opcodes: OpcodeSet)(implicit p: Parameters) extends LazyRoCC(
         TLMasterParameters.v1(
           name = "aCustomTileLink",
           sourceId = IdRange(0, 2),             // 0 と 1 を使える
-
         )
       )
     )
@@ -203,6 +202,7 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
 
 //---------------------s_acq or s_acq2-----------------------
+  // when (tl_out.a.fire ||(state === s_acq || state === s_acq)) {
 
   when (tl_out.a.fire ) {
     printf("addr1 = %b\n", addr)
