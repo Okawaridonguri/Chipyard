@@ -37,7 +37,28 @@ class WithaCustomAccel extends Config((site, here, up) => {
 
 class aCustomAccel(opcodes: OpcodeSet)(implicit p: Parameters) extends LazyRoCC(opcodes){
   override lazy val module = new aCustomAccelImp(this)
-  override val atlNode = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLMasterParameters.v1("aCustomTileLink")))))
+  // override val atlNode = TLClientNode(Seq(
+  //   TLMasterPortParameters.v1(Seq(TLMasterParameters.v1("aCustomTileLink"))),
+  //   TLMasterPortParameters.v1(Seq(TLMasterParameters.v1("aCustomTileLink2"))),
+
+  //   ))
+  //  override val atlNode = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLMasterParameters.v1(
+  //   name = "aCustomTileLink",
+  //   supportsGet = TransferSizes.all    )))))
+
+  // override val atlNode = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLMasterParameters.v1("aCustomTileLink")))))
+
+  override val atlNode = TLClientNode(Seq(TLMasterPortParameters.v1(
+      Seq(
+        TLMasterParameters.v1(
+          name = "aCustomTileLink",
+          sourceId = IdRange(0, 2),             // 0 と 1 を使える
+
+        )
+      )
+    )
+  ))
+  // override val atlNode2 = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLMasterParameters.v1("aCustomTileLink2")))))
 
   // override val atlNode = TLClientNode(Seq(TLMasterPortParameters.v1(Seq(TLMasterParameters.v1("CharacterCountRoCC")))))
 }
@@ -49,7 +70,7 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
   val cacheParams = tileParams.dcache.get
 
-  val s_idle  :: s_acq :: s_gnt :: s_wait :: s_acq2 :: s_gnt2 :: s_process :: s_still :: s_check :: s_resp :: Nil = Enum(10)
+  val s_idle  :: s_acq :: s_gnt :: s_wait :: s_wait2 :: s_acq2 :: s_gnt2 :: s_process :: s_still :: s_check :: s_resp :: Nil = Enum(11)
   val state = RegInit(s_idle)
   val resp_rd = Reg(chiselTypeOf(io.resp.bits.rd))
   val ret = Reg(UInt(xLen.W))
@@ -105,7 +126,6 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val needle_found = needle_match.reduce(_ || _)
 
   val finished = Reg(Bool())    
-  val getAdd = Reg(UInt(coreMaxAddrBits.W))
 
   io.cmd.ready := (state === s_idle)
 
@@ -124,33 +144,75 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
   }
 
-  when(state === s_wait){
-    getAdd :=  (addr_block << blockOffset)
-    state := s_acq
-  }
+
+  // when(state === s_wait2){
+  //   tl_out.a.bits := edgesOut.Get(
+  //                 fromSource = 0.U,
+  //                 toAddress = getAdd,
+  //                 lgSize = lgCacheBlockBytes.U)._2
+  //   state := s_acq2
+  // }
+
+  // val (tl_out, edgesOut) = outer.atlNode.out(0)
+  // tl_out.a.valid := (state === s_acq) 
+  // tl_out.a.bits := edgesOut.Get(
+  //                     fromSource = 0.U,
+  //                     toAddress = (addr_block << blockOffset),
+  //                     lgSize = lgCacheBlockBytes.U)._2
+
+  // val (tl_out2, edgesOut2) = outer.atlNode.out(1)
+  // tl_out2.a.valid :=  (state === s_acq2) 
+  // tl_out2.a.bits := edgesOut.Get(
+  //                     fromSource = 1.U,
+  //                     toAddress = (addr2_block << blockOffset),
+  //                     lgSize = lgCacheBlockBytes.U)._2
+
+  val do_acq = (state === s_acq)
+  val do_acq2 = (state === s_acq2)
+
 
   val (tl_out, edgesOut) = outer.atlNode.out(0)
-  tl_out.a.valid := (state === s_acq) || (state === s_acq2)
-  tl_out.a.bits := edgesOut.Get(
-                      fromSource = 0.U,
-                      toAddress = getAdd,
-                      lgSize = lgCacheBlockBytes.U)._2
+  tl_out.a.valid := (state === s_acq || state === s_acq2 || state === s_wait || state === s_wait2)
+
+  val a_bits_0 = edgesOut.Get(
+                        fromSource = 0.U,
+                        toAddress = (addr_block << blockOffset),
+                        lgSize = lgCacheBlockBytes.U)._2
+
+
+  val a_bits_1 = edgesOut.Get(
+                        fromSource = 1.U,
+                        toAddress = (addr2_block << blockOffset),
+                        lgSize = lgCacheBlockBytes.U)._2
+
+
+  when(state === s_wait){
+    tl_out.a.bits := a_bits_0
+    state === s_acq
+    printf("state === s_wait\n")
+  }
+
+  when(state === s_wait2){
+    tl_out.a.bits := a_bits_1
+    state === s_acq2
+    printf("state === s_wait2\n")
+
+  }
 
 
 //---------------------s_acq or s_acq2-----------------------
 
   when (tl_out.a.fire) {
-    printf("getAdd === %b\n", getAdd)
     printf("addr1 = %b\n", addr)
     printf("addr2 = %b\n", addr2)
     printf(p"Got tl_out.a!\n")
-    state := Mux(state === s_acq, s_gnt, s_gnt2)
+    state := Mux(state === s_wait, s_gnt, s_gnt2)
     printf(p"state is $state\n")
     printf(p"\n")
 
   }
   
-  tl_out.d.ready := (state === s_gnt || state === s_gnt2)
+  tl_out.d.ready := (state === s_gnt) || (state === s_gnt2)
   val gnt = tl_out.d.bits
 
 //---------------------s_gnt or s_gnt2-----------------------
@@ -162,8 +224,7 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
       printf(p"recv_beat + 1.U, recv_data := gnt.data\n")
       recv_beat := recv_beat + 1.U
       recv_data := gnt.data
-      getAdd :=  (addr2_block << blockOffset)
-      state := s_acq2
+      state := s_wait2
 
     } .elsewhen(state === s_gnt2){
       printf(p"recv_beat2 + 1.U, recv_data2 := gnt.data\n")
@@ -172,16 +233,13 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
       state := s_still
     }
     printf("gnt.data = %b\n", gnt.data)
+    printf("gnt.source = %b\n", gnt.source)
     printf(p"\n")
   }
 
 when(state === s_still){
-    tl_out.a.bits := edgesOut.Get(
-                      fromSource = 0.U,
-                      toAddress = getAdd,
-                      lgSize = lgCacheBlockBytes.U)._2
-  state := s_process
   needle := data_bytes(index)//これを全部共通にできないかなぁ
+  state := s_process
 
 }
 //---------------------s_process-----------------------
@@ -190,6 +248,7 @@ when(state === s_still){
   when(state === s_process){//state === 5
     printf(p"state is $state\n")
     printf(p"index === $index\n")
+    printf("needle === %b", needle)
     printf(p"needle === $needle\n")
 
     when(index === 0.U){
@@ -221,7 +280,7 @@ when(state === s_still){
     }
     printf("\n")
 
-    for(i <- 0 until bool_table.length - 1){
+    for(i <- 0 until bool_table.length){
       printf("%c ===", needle)//print character 
       printf("%c", data_bytes2(i))//print character 
       printf(p"       ${needle === data_bytes2(i)}\n")
@@ -236,7 +295,6 @@ when(state === s_still){
       printf(p"zero_found2 ON!\n")
       finished := true.B
     }// sentence contained \0. Go to response
-
 
 
 
@@ -261,13 +319,13 @@ when(state === s_still){
           printf(p"recv_beat === cacheDataBeats.U ON!")
           recv_beat := 0.U
           addr := next_addr
-          state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_acq2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
+          state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_wait2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
 
       } .elsewhen(recv_beat2 === cacheDataBeats.U){
           printf(p"recv_beat2 === cacheDataBeats.U ON!")
           recv_beat2 := 0.U
           addr2 := next_addr2
-          state := Mux(finished, s_resp, s_acq)
+          state := Mux(finished, s_resp, s_wait)
       }
     }
     printf(p"state is $state\n")
