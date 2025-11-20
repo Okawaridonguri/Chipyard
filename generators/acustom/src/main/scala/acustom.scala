@@ -185,16 +185,18 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
                         toAddress = (addr2_block << blockOffset),
                         lgSize = lgCacheBlockBytes.U)._2
 
+                        Portを２つにするか、2個lineを作っちゃうか
+
 
   when(state === s_wait){
     tl_out.a.bits := a_bits_0
-    state === s_acq
+    state := s_acq
     printf("state === s_wait\n")
   }
 
   when(state === s_wait2){
     tl_out.a.bits := a_bits_1
-    state === s_acq2
+    state := s_acq2
     printf("state === s_wait2\n")
 
   }
@@ -202,7 +204,7 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
 //---------------------s_acq or s_acq2-----------------------
 
-  when (tl_out.a.fire) {
+  when (tl_out.a.fire ) {
     printf("addr1 = %b\n", addr)
     printf("addr2 = %b\n", addr2)
     printf(p"Got tl_out.a!\n")
