@@ -12,7 +12,10 @@ void print_binary_uint64(uint64_t value) {
 }
 
 volatile char str2[64] __attribute__ ((aligned(64))) ="XAERFKJANLVLJOALKDJHelloABCDEFGIJKLMNOPQRSTUUTSRQPONMLKJIGFEDCB";
-volatile char str1[64] __attribute__ ((aligned(64))) ="1234567890ABCDEFGHIJKLMNOPQRSYWZVX1234567890QWERTYUIOPASDFGHJKL";
+volatile char str1[64] __attribute__ ((aligned(64))) ="Hello";
+
+// volatile char str2[64] __attribute__ ((aligned(64))) ="XAERFKJANLVLJOALKDJHelloABCDEFGIJKLMNOPQRSTUUTSRQPONMLKJIGFEDCB";
+// volatile char str1[64] __attribute__ ((aligned(64))) ="1234567890ABCDEFGHIJKLMNOPQRSYWZVX1234567890QWERTYUIOPASDFGHJKL";
 
 // char string[64] __attribute__ ((aligned (64))) = "The quick brown fox jumped over the lazy dog";
 
