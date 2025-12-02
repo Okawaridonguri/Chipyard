@@ -69,7 +69,7 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
   val cacheParams = tileParams.dcache.get
 
-  val s_idle  :: s_acq :: s_gnt :: s_wait :: s_wait2 :: s_acq2 :: s_gnt2 :: s_process :: s_still :: s_check :: s_check2 :: s_resp :: Nil = Enum(12)
+  val s_idle  :: s_acq :: s_gnt :: s_wait :: s_wait2 :: s_acq2 :: s_gnt2 :: s_process :: s_conti_process :: s_still :: s_check :: s_check2 :: s_resp :: Nil = Enum(13)
   val state = RegInit(s_idle)
   val resp_rd = Reg(chiselTypeOf(io.resp.bits.rd))
   val ret = Reg(UInt(xLen.W))
@@ -91,6 +91,8 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val data_bytes = VecInit(Seq.tabulate(cacheDataBits/8) { i => recv_data(8 * (i + 1) - 1, 8 * i) })
 
   val index = RegInit(0.U(xLen.W))
+  val index_save = RegInit(0.U(xLen.W))
+  val recv_beat2_save = RegInit(0.U(log2Up(cacheDataBeats+1).W))
 
 
 
@@ -125,6 +127,8 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val needle_found = needle_match.reduce(_ || _)
 
   val finished = Reg(Bool())    
+  val conti_flag = Reg(Bool())    
+
 
   io.cmd.ready := (state === s_idle)
 
@@ -236,6 +240,8 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
     }
     printf("gnt.data = %b\n", gnt.data)
     printf("gnt.source = %b\n", gnt.source)
+    printf("save_index === %c ", index_save)//print character 
+    printf("recv_beat2_save === %c ", recv_beat2_save)//print character 
     printf(p"\n")
   }
 
@@ -243,11 +249,15 @@ when(state === s_still){
   needle := data_bytes(index)//これを全部共通にできないかなぁ
   state := s_process
 
+  when(conti_flag && bool_table_reduce){
+    index := index_save
+    needle := data_bytes(index_save)
+  }
 }
 //---------------------s_process-----------------------
 
 
-  when(state === s_process){//state === 5
+  when(state === s_process ){//state === 5
     printf(p"state is $state\n")
     printf(p"index === $index\n")
     printf("needle === %b", needle)
@@ -261,12 +271,12 @@ when(state === s_still){
     }.otherwise{ //初期以降の状態（フラグが立った場所の次行だけを見る）
       for(i <- 0 until bool_table.length - 1){
           bool_table_next(i + 1) := Mux(data_bytes2(i + 1) === needle, bool_table(i), false.B)
-          when(data_bytes2(i + 1) === needle){
-            printf("yuppie")
-          printf("%b", bool_table(i))
+          // when(data_bytes2(i + 1) === needle){
+          //   printf("yuppie")
+          // printf("%b", bool_table(i))
 
 
-          }
+          // }
       }
     }
 
@@ -314,41 +324,54 @@ when(state === s_still){
 
     when(zero_found2){
       printf(p"zero_found2 ON! Sentence contained NULL\n")
-      finished := true.B
+      state := s_resp
     }.otherwise{// sentence contained \0. Go to response
-
-
       when(needle === 0.U){
         printf("word NULL was reached. Word was found")
         ret := 1.U
         state := s_resp
-      }.elsewhen(needle_found){
+      }.elsewhen(needle_found && bool_table_reduce){
         index := index + 1.U
         needle := data_bytes(index)//これを全部共通にできないかなぁ
         printf(p"needle found!\n")
         // state := s_process
         state := s_still
+
+        when(bool_table(7) === true.B){//この瞬間の状況をsaveする
+          conti_flag := true.B
+          printf(p"conti_flag up!")
+          index_save := index
+          recv_beat2_save := recv_beat2
+        }
+        
+
       }.otherwise{
-
-
         printf(p"needle not found!\n")
         index := 0.U
+        when(conti_flag){
+          recv_beat2 := recv_beat2_save
+          printf(p"put back recv_beat2_save")
+          conti_flag := false.B
+
+        }
         state := s_wait2 /////////////////acq2(s_wait)にするのかな？
 
-        when(recv_beat === cacheDataBeats.U){
-            printf(p"recv_beat === cacheDataBeats.U ON!")
-            recv_beat := 0.U
-            addr := next_addr
-            // state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_wait2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
-            state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_wait2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
+        // when(recv_beat === cacheDataBeats.U){
+        //     printf(p"recv_beat === cacheDataBeats.U ON!")
+        //     recv_beat := 0.U
+        //     addr := next_addr
+        //     // state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_wait2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
+        //     state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_wait2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
 
 
-        } .elsewhen(recv_beat2 === cacheDataBeats.U){
-            printf(p"recv_beat2 === cacheDataBeats.U ON!")
-            recv_beat2 := 0.U
-            addr2 := next_addr2
-            state := Mux(finished, s_resp, s_wait)
-        }
+        // } .elsewhen(recv_beat2 === cacheDataBeats.U){
+        //     printf(p"recv_beat2 === cacheDataBeats.U ON!")
+        //     recv_beat2 := 0.U
+        //     when(conti_flag){
+        //       addr2 := next_addr2
+        //     }
+        //     state := Mux(finished, s_resp, s_wait)
+        // }
       }
     }
     printf(p"state is $state\n")

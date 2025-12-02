@@ -11,7 +11,9 @@ void print_binary_uint64(uint64_t value) {
     putchar('\n');
 }
 
-volatile char str2[64] __attribute__ ((aligned(64))) ="XAERFKJANLVLJOALKDJHelloABCDEFGIJKLMNOPQRSTUUTSRQPONMLKJIGFEDCB";
+// AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHelloo
+
+volatile char str2[64] __attribute__ ((aligned(64))) ="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHelloo";
 volatile char str1[64] __attribute__ ((aligned(64))) ="Hello";
 
 // volatile char str2[64] __attribute__ ((aligned(64))) ="XAERFKJANLVLJOALKDJHelloABCDEFGIJKLMNOPQRSTUUTSRQPONMLKJIGFEDCB";
