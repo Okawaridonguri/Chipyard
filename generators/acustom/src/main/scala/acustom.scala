@@ -69,7 +69,7 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
   val cacheParams = tileParams.dcache.get
 
-  val s_idle  :: s_acq :: s_gnt :: s_wait :: s_wait2 :: s_acq2 :: s_gnt2 :: s_process :: s_conti_process :: s_still :: s_check :: s_check2 :: s_resp :: Nil = Enum(13)
+  val s_idle  :: s_acq :: s_gnt :: s_prep_acq :: s_prep_acq2 :: s_acq2 :: s_gnt2 :: s_process :: s_conti_process :: s_prep_process :: s_check :: s_check2 :: s_resp :: Nil = Enum(13)
   val state = RegInit(s_idle)
   val resp_rd = Reg(chiselTypeOf(io.resp.bits.rd))
   val ret = Reg(UInt(xLen.W))
@@ -87,7 +87,8 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val next_addr = (addr_block + 1.U) << blockOffset.U
 
   val recv_data = Reg(UInt(cacheDataBits.W))
-  val recv_beat = RegInit(0.U(log2Up(cacheDataBeats+1).W))
+  val recv_beat = RegInit(0.U((cacheDataBeats+1).W))
+  // val recv_beat = RegInit(0.U(log2Up(cacheDataBeats+1).W))
   val data_bytes = VecInit(Seq.tabulate(cacheDataBits/8) { i => recv_data(8 * (i + 1) - 1, 8 * i) })
 
   val index = RegInit(0.U(xLen.W))
@@ -104,7 +105,8 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
 
   val recv_data2 = Reg(UInt(cacheDataBits.W))
-  val recv_beat2 = RegInit(0.U(log2Up(cacheDataBeats+1).W))
+  val recv_beat2 = RegInit(0.U((cacheDataBeats+1).W))
+  // val recv_beat2 = RegInit(0.U(log2Up(cacheDataBeats+1).W))
   val data_bytes2 = VecInit(Seq.tabulate(cacheDataBits/8) { i => recv_data2(8 * (i + 1) - 1, 8 * i) })
 
   val bool_table = RegInit(VecInit(Seq.fill(cacheDataBits/8)(false.B)))
@@ -141,14 +143,14 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
     finished := false.B
     ret := 0.U
     resp_rd := io.cmd.bits.inst.rd
-    state := s_wait
+    state := s_prep_acq
     printf(p"state is $state\n")
     printf(p"\n")
 
   }
 
 
-  // when(state === s_wait2){
+  // when(state === s_prep_acq2){
   //   tl_out.a.bits := edgesOut.Get(
   //                 fromSource = 0.U,
   //                 toAddress = getAdd,
@@ -175,7 +177,10 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
 
   val (tl_out, edgesOut) = outer.atlNode.out(0)
-  tl_out.a.valid := (state === s_acq || state === s_acq2 || state === s_wait || state === s_wait2)
+  // tl_out.a.valid := (state === s_acq || state === s_acq2 || state === s_prep_acq || state === s_prep_acq2)
+  tl_out.a.valid := (state === s_prep_acq || state === s_prep_acq2)
+
+
 
   val a_bits_0 = edgesOut.Get(
                         fromSource = 0.U,
@@ -191,16 +196,16 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
                         // Portを２つにするか、2個lineを作っちゃうか
 
 
-  when(state === s_wait){
+  when(state === s_prep_acq){
     tl_out.a.bits := a_bits_0
     state := s_acq
-    printf("state === s_wait\n")
+    printf("state === s_prep_acq\n")
   }
 
-  when(state === s_wait2){
+  when(state === s_prep_acq2){
     tl_out.a.bits := a_bits_1
     state := s_acq2
-    printf("state === s_wait2\n")
+    printf("state === s_prep_acq2\n")
 
   }
 
@@ -212,7 +217,10 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
     printf("addr1 = %b\n", addr)
     printf("addr2 = %b\n", addr2)
     printf(p"Got tl_out.a!\n")
-    state := Mux(state === s_wait, s_gnt, s_gnt2)
+    state := Mux(state === s_prep_acq, s_gnt, s_gnt2)
+
+    printf("addr1 + recv_beat2 = %b", (addr2_block << blockOffset) + (8.U * recv_beat2))
+    printf("recv_beat2 is =%b", recv_beat2)
     printf(p"state is $state\n")
     printf(p"\n")
 
@@ -230,13 +238,13 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
       printf(p"recv_beat + 1.U, recv_data := gnt.data\n")
       recv_beat := recv_beat + 1.U
       recv_data := gnt.data
-      state := s_wait2///これを、もし、acq1オンリーだったら、s_checkに行くようなフラグがいるかもしれない。
+      state := s_prep_acq2///これを、もし、acq1オンリーだったら、s_checkに行くようなフラグがいるかもしれない。
 
     } .elsewhen(state === s_gnt2){
       printf(p"recv_beat2 + 1.U, recv_data2 := gnt.data\n")
       recv_beat2 := recv_beat2 + 1.U
       recv_data2 := gnt.data
-      state := s_still
+      state := s_prep_process
     }
     printf("gnt.data = %b\n", gnt.data)
     printf("gnt.source = %b\n", gnt.source)
@@ -245,7 +253,7 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
     printf(p"\n")
   }
 
-when(state === s_still){
+when(state === s_prep_process){
   needle := data_bytes(index)//これを全部共通にできないかなぁ
   state := s_process
 
@@ -286,6 +294,12 @@ when(state === s_still){
     // }
     state := s_check
   }
+
+
+
+
+
+
   //---------------------s_check-----------------------
 
   when(state === s_check){
@@ -320,63 +334,98 @@ when(state === s_still){
     printf(p"bool_table_reduce =  ${bool_table_reduce}\n")//print character 
     
 
-
-
-    when(zero_found2){
-      printf(p"zero_found2 ON! Sentence contained NULL\n")
+    when(needle === 0.U){//条件１　文字列がNULLに到達した場合
+      printf("word NULL was reached. Word was found")
+      ret := 1.U
       state := s_resp
-    }.otherwise{// sentence contained \0. Go to response
-      when(needle === 0.U){
-        printf("word NULL was reached. Word was found")
-        ret := 1.U
+    }.elsewhen(zero_found2 && ~(bool_table_reduce)){//条件２　調査文字列にNULLが現れ、条件３を満たす場合
+        printf(p"zero_found2 ON! Sentence contained NULL\n")
         state := s_resp
-      }.elsewhen(needle_found && bool_table_reduce){
-        index := index + 1.U
-        needle := data_bytes(index)//これを全部共通にできないかなぁ
-        printf(p"needle found!\n")
-        // state := s_process
-        state := s_still
 
-        when(bool_table(7) === true.B){//この瞬間の状況をsaveする
-          conti_flag := true.B
-          printf(p"conti_flag up!")
-          index_save := index
-          recv_beat2_save := recv_beat2
-        }
-        
-
-      }.otherwise{
+    }.elsewhen(~(bool_table_reduce)){//条件３フラグ配列が全て0になる
         printf(p"needle not found!\n")
         index := 0.U
+
         when(conti_flag){
           recv_beat2 := recv_beat2_save
           printf(p"put back recv_beat2_save")
           conti_flag := false.B
 
         }
-        state := s_wait2 /////////////////acq2(s_wait)にするのかな？
+        state := s_prep_acq2 
 
-        // when(recv_beat === cacheDataBeats.U){
-        //     printf(p"recv_beat === cacheDataBeats.U ON!")
-        //     recv_beat := 0.U
-        //     addr := next_addr
-        //     // state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_wait2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
-        //     state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_wait2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
+    }.elsewhen(bool_table_reduce){//条件４　フラグ配列がまだある時
+      index := index + 1.U
+      needle := data_bytes(index)//これを全部共通にできないかなぁ
+      printf(p"needle found!\n")
+      // state := s_process
+      state := s_prep_process
 
-
-        // } .elsewhen(recv_beat2 === cacheDataBeats.U){
-        //     printf(p"recv_beat2 === cacheDataBeats.U ON!")
-        //     recv_beat2 := 0.U
-        //     when(conti_flag){
-        //       addr2 := next_addr2
-        //     }
-        //     state := Mux(finished, s_resp, s_wait)
-        // }
+      when(bool_table(7) === true.B){//条件５　この瞬間の状況をsaveする
+        conti_flag := true.B
+        printf(p"conti_flag up!")
+        index_save := index
+        recv_beat2_save := recv_beat2
       }
     }
     printf(p"state is $state\n")
     printf(p"finished is $finished\n")
     printf(p"\n")
+  }
+
+
+
+    // when(zero_found2 && ~(bool_table_reduce)){
+    //   printf(p"zero_found2 ON! Sentence contained NULL\n")
+    //   state := s_resp
+    // }.otherwise{// sentence contained \0. Go to response
+    //   when(needle === 0.U){
+    //     printf("word NULL was reached. Word was found")
+    //     ret := 1.U
+    //     state := s_resp
+    //   }.elsewhen(needle_found && bool_table_reduce){
+    //     index := index + 1.U
+    //     needle := data_bytes(index)//これを全部共通にできないかなぁ
+    //     printf(p"needle found!\n")
+    //     // state := s_process
+    //     state := s_prep_process
+
+    //     when(bool_table(7) === true.B){//この瞬間の状況をsaveする
+    //       conti_flag := true.B
+    //       printf(p"conti_flag up!")
+    //       index_save := index
+    //       recv_beat2_save := recv_beat2
+    //     }
+        
+
+    //   }.otherwise{
+    //     printf(p"needle not found!\n")
+    //     index := 0.U
+    //     when(conti_flag){
+    //       recv_beat2 := recv_beat2_save
+    //       printf(p"put back recv_beat2_save")
+    //       conti_flag := false.B
+
+    //     }
+    //     state := s_prep_acq2 /////////////////acq2(s_prep_acq)にするのかな？
+
+    //     // when(recv_beat === cacheDataBeats.U){
+    //     //     printf(p"recv_beat === cacheDataBeats.U ON!")
+    //     //     recv_beat := 0.U
+    //     //     addr := next_addr
+    //     //     // state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_prep_acq2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
+    //     //     state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_prep_acq2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
+
+
+    //     // } .elsewhen(recv_beat2 === cacheDataBeats.U){
+    //     //     printf(p"recv_beat2 === cacheDataBeats.U ON!")
+    //     //     recv_beat2 := 0.U
+    //     //     when(conti_flag){
+    //     //       addr2 := next_addr2
+    //     //     }
+    //     //     state := Mux(finished, s_resp, s_prep_acq)
+    //     // }
+    //   }
 
     // when(zero_found){
     //   printf(p"zero_found ON!")
@@ -389,7 +438,6 @@ when(state === s_still){
     //   }
     // }
 
-  }
 
 // Response Here
   io.resp.valid := (state === s_resp)
@@ -415,7 +463,7 @@ when(state === s_still){
 
     state := s_idle  
     printf("The End")
-    assert(false.B, "Simulation error")
+    // assert(false.B, "Simulation error")
 
     // printf(p"[cycle=%d]\n", GTimer())
     
@@ -425,7 +473,7 @@ when(state === s_still){
   io.busy := (state =/= s_idle)
   io.interrupt := false.B
   io.mem.req.valid := false.B
-  tl_out.b.ready := true.B
+  tl_out.b.valid := false.B
   tl_out.c.valid := false.B
   tl_out.e.valid := false.B
 
@@ -545,13 +593,13 @@ class aCustomAccelTestImp(outer: aCustomTestAccel)(implicit p: Parameters) exten
 
 
   when(io.resp.fire){
-    printf("The end") 
+    // printf("The end") 
     state := s_idle  
   }
 
-  io.busy := (state =/= s_idle)
-  io.mem.req.valid := false.B
+  io.busy := (state =/= s_idle)//ここ違う
   io.interrupt := false.B
+  io.mem.req.valid := false.B
 
 }
 
