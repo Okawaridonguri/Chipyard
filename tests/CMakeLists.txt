@@ -89,6 +89,9 @@ add_executable(symmetric symmetric.c)
 
 
 add_executable(aCustom aCustom.c)
+add_executable(aCustom2 aCustom2.c)
+add_executable(aCustom3 aCustom3.c)
+
 
 
 #################################
@@ -130,6 +133,8 @@ add_dump_target(mt-hello)
 add_dump_target(symmetric)
 
 add_dump_target(aCustom)
+add_dump_target(aCustom2)
+add_dump_target(aCustom3)
 
 
 

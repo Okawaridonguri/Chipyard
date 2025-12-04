@@ -133,13 +133,16 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
 
   io.cmd.ready := (state === s_idle)
+  io.resp.valid := (state === s_resp)
+  io.resp.bits.rd := resp_rd
+  io.resp.bits.data := ret
+
 
   when(io.cmd.fire){//state === 0
 
     printf(p"Fire! Start\n")
     addr := io.cmd.bits.rs1
     addr2 := io.cmd.bits.rs2
-
     finished := false.B
     ret := 0.U
     resp_rd := io.cmd.bits.inst.rd
@@ -336,7 +339,7 @@ when(state === s_prep_process){
 
     when(needle === 0.U){//条件１　文字列がNULLに到達した場合
       printf("word NULL was reached. Word was found")
-      ret := 1.U
+      // ret := 1.U
       state := s_resp
     }.elsewhen(zero_found2 && ~(bool_table_reduce)){//条件２　調査文字列にNULLが現れ、条件３を満たす場合
         printf(p"zero_found2 ON! Sentence contained NULL\n")
@@ -440,10 +443,6 @@ when(state === s_prep_process){
 
 
 // Response Here
-  io.resp.valid := (state === s_resp)
-  io.resp.bits.rd := resp_rd
-  io.resp.bits.data := ret
-
   when(io.resp.fire){
     printf(p"state is $state\n")
 
