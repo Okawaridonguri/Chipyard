@@ -10,33 +10,33 @@ volatile const char str2[64] __attribute__ ((aligned(64))) ="AAAAAAAAAAAAAAAAAAA
 volatile char str1[64] __attribute__ ((aligned(64))) ="Hellooo";
 
 
-全体のハードウェア構成がどっかで定義されているから、外付けのメモリ探してみて
-後、キャッシュメモリのサイズ　キロバイトぐらいかも
-そのサイズが超えるか超えないかで、実行時間が変わるかも
+// 全体のハードウェア構成がどっかで定義されているから、外付けのメモリ探してみて
+// 後、キャッシュメモリのサイズ　キロバイトぐらいかも
+// そのサイズが超えるか超えないかで、実行時間が変わるかも
 
-const つけてみる。
-プログラムがROMに入ってる？
+// const つけてみる。
+// プログラムがROMに入ってる？
 
 int main(void){
-    int i, j;
+    // int i, j;
 
-    for(i = 0; str2[i] != '\0'; i++){
+    // for(i = 0; str2[i] != '\0'; i++){
 
-        for(j = 0; str2[j] != '\0'; j++){
-            printf("%d == %d\n", i+j, j)
-            printf("%s == %s\n"str1[i+j], str2[j])
-            if(str1[i + j] != str2[j]){
-                break;
-            }
-        }
+    //     for(j = 0; str2[j] != '\0'; j++){
+    //         printf("%d == %d\n", i+j, j);
+    //         printf("%s == %s\n"str1[i+j], str2[j]);
+    //         if(str1[i + j] != str2[j]){
+    //             break;
+    //         }
+    //     }
 
-        if(str2[j] == '\0'){
-            printf("文字列の検索結果: %d\n", j);
-            return 1;
-        }
-    }
-    printf("what %d", i);
-    return 0;
+    //     if(str2[j] == '\0'){
+    //         printf("文字列の検索結果: %d\n", j);
+    //         return 1;
+    //     }
+    // }
+    // printf("what %d", i);
+    // return 0;
 
 }
 
