@@ -102,12 +102,11 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val index_save = RegInit(0.U(xLen.W))
   val recv_beat2_save = RegInit(0.U(log2Up(cacheDataBeats+1).W))
 
-  val temp_index = RegInit(0.U(xLen.W))
-
 //addr2 素材
   val addr2 = RegInit(0.U(coreMaxAddrBits.W))
   val offset2 = addr2(blockOffset - 1, 0)
   val addr2_block = addr2(coreMaxAddrBits - 1, blockOffset)
+  // val next_addr2 = (addr2_block + 1.U) << blockOffset.U
   val next_addr2 = (addr2_block + 1.U) << blockOffset.U
 
 
@@ -158,11 +157,14 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
     addr := io.cmd.bits.rs1
     addr2 := io.cmd.bits.rs2
     finished := false.B
+    conti_flag := false.B
     ret := 0.U
     resp_rd := io.cmd.bits.inst.rd
     state := s_prep_acq
     printf(p"state is $state\n")
     printf(p"\n")
+        // assert(false.B, "Simulation error")
+
 
   }
 
@@ -225,46 +227,21 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
 val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
 
-
-
-  // val sliced = MuxLookup(temp_index, recv_data(7,0))(Seq(
-  //   0.U -> recv_data(7,0),
-  //   1.U -> recv_data(15, 8),
-  //   2.U -> recv_data(23,16),
-  //   3.U -> recv_data(31,24),
-  //   4.U -> recv_data(39,32),
-  //   5.U -> recv_data(47,40),
-  //   6.U -> recv_data(55,48),
-  //   7.U -> recv_data(63,56)
-  // ))
-
-  //   val sliced2 = MuxLookup(temp_index, recv_data2(7,0))(Seq(
-  //   0.U -> recv_data2(7,0),
-  //   1.U -> recv_data2(15, 8),
-  //   2.U -> recv_data2(23,16),
-  //   3.U -> recv_data2(31,24),
-  //   4.U -> recv_data2(39,32),
-  //   5.U -> recv_data2(47,40),
-  //   6.U -> recv_data2(55,48),
-  //   7.U -> recv_data2(63,56)
-  // ))
-
-
-
   when(state === s_prep_acq){
     tl_out.a.bits := a_bits_0
-    temp_index := 0.U
     state := s_acq
+    recv_data := 0.U
     printf("state === s_prep_acq\n")
   }
 
   when(state === s_prep_acq2){
     tl_out.a.bits := a_bits_1
-    temp_index := 0.U
     state := s_acq2
+    recv_data2 := 0.U
     printf("state === s_prep_acq2\n")
 
   }
+
 
   // when(state === s_prep_gnt){}
 
@@ -277,9 +254,9 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
     printf("addr2 = %b\n", addr2)
     printf(p"Got tl_out.a!\n")
     state := Mux(state === s_prep_acq, s_gnt, s_gnt2)
+    print("reset recv = ", recv_beat)
 
     // printf("addr1 + recv_beat2 = %b", (addr2_block << blockOffset) + (8.U * recv_beat2))
-    printf("recv_beat2 is =%b", recv_beat2)
     printf(p"state is $state\n")
     printf(p"\n")
 
@@ -298,8 +275,8 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
       // for(i <- 0 until 7){
       //   recv_data(8 * (i + 1) - 1, 8 * i) := gnt.data
       // }
-      
-      recv_data := gnt.data
+      recv_data := recv_data | (gnt.data << (d_beat_count << 6))
+      // recv_data := (recv_data << (64.U * d_beat_count)) + gnt.data
       printf(p"Beat: $d_beat_count, Data: ${Hexadecimal(tl_out.d.bits.data)}\n")
 
       when(d_last){
@@ -307,90 +284,21 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
         printf("Transfer Done\n")
       }
 
-      // recv_data := (recv_data << 64) + gnt.data
-
-
-      // when(temp_index === 0.U){//これエラー
-      //   recv_data(7,0) := gnt.data
-      // }.elsewhen(temp_index === 1.U){
-      //   recv_data(15, 8) := gnt.data
-      // }.elsewhen(temp_index === 2.U){
-      //   recv_data(23,16) := gnt.data
-      // }.elsewhen(temp_index === 3.U){
-      //   recv_data(31,24) := gnt.data
-      // }.elsewhen(temp_index === 4.U){
-      //   recv_data(39,32) := gnt.data
-      // }.elsewhen(temp_index === 5.U){
-      //   recv_data(47,40) := gnt.data
-      // }.elsewhen(temp_index === 6.U){
-      //   recv_data(55,48) := gnt.data
-      // }.elsewhen(temp_index === 7.U){
-      //   recv_data(63,56) := gnt.data
-      // }
-
-      // when(temp_index === 7.U){
-      //   state := s_prep_acq2
-      //   printf("acq!")
-      // }.otherwise{
-      //   state := s_tloop1
-      //   printf("loop!")
-      // }
-
-      // state := Mux(temp_index === 7.U,  s_prep_acq2, s_tloop1)
-
-
-
     } .elsewhen(state === s_gnt2){
       printf(p"recv_beat2 + 1.U, recv_data2 := gnt.data\n")
+      printf("recv_data === gnt.data = %b\n yaya", gnt.data)
+
+      recv_data2 := recv_data2 | (gnt.data << (d_beat_count << 6))
+      // recv_data2 := recv_data2  + gnt.data <<(64.U * d_beat_count)
       
-      recv_data2 := gnt.data
       printf(p"Beat: $d_beat_count, Data: ${Hexadecimal(tl_out.d.bits.data)}\n")
 
-
-      // when(temp_index === 0.U){
-      //   recv_data2(7,0) := gnt.data
-      // }.elsewhen(temp_index === 1.U){
-      //   recv_data2(15, 8) := gnt.data
-      // }.elsewhen(temp_index === 2.U){
-      //   recv_data2(23,16) := gnt.data
-      // }.elsewhen(temp_index === 3.U){
-      //   recv_data2(31,24) := gnt.data
-      // }.elsewhen(temp_index === 4.U){
-      //   recv_data2(39,32) := gnt.data
-      // }.elsewhen(temp_index === 5.U){
-      //   recv_data2(47,40) := gnt.data
-      // }.elsewhen(temp_index === 6.U){
-      //   recv_data2(55,48) := gnt.data
-      // }.elsewhen(temp_index === 7.U){
-      //   recv_data2(63,56) := gnt.data
-      // }
-
-
-
-      // for(i <- 0 until 7){
-      //   recv_data2(8 * (i + 1) - 1, 8 * i) := gnt.data
-      // }
-      // recv_data := gnt.dataasdfasdfasdf
-      // sliced2 := gnt.data
       when(d_last){
         state := s_prep_process
         printf("Transfer Done\n")
       }    
     }
   
-  // when(state === s_tloop1){
-  //   printf("im here!")
-  //   printf("recv.data1 = %b\n", recv_data)
-
-  //   temp_index := temp_index + 1.U
-  //   state := s_gnt
-  // }
-
-  // when(state === s_tloop2){
-  //   printf("recv_data2 = %b\n", recv_data2)
-  //   temp_index := temp_index + 1.U
-  //   state := s_gnt2
-  // }
 
 
     // when(state === s_gnt){
@@ -422,10 +330,11 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
     needle := data_bytes(index)//これを全部共通にできないかなぁ
     state := s_process
 
-    when(conti_flag && bool_table_reduce){
-      index := index_save
-      needle := data_bytes(index_save)
-    }
+    // when(conti_flag && bool_table_reduce){
+    //   printf("index save herez")
+    //   index := index_save
+    //   needle := data_bytes(index_save)
+    // }
   }
 //---------------------s_process-----------------------
 
@@ -447,6 +356,7 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
       }
     }
     state := s_check
+    
   }
 
 
@@ -463,7 +373,12 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
 
 
   when(state === s_check2){
+    printf("recv_data is =%b", recv_data)
+    printf("recv_data2 is =%b", recv_data2)
+
     printf(p"state is $state\n")
+
+    printf("recv_data")
     
     printf("bool_table =")
 
@@ -479,9 +394,10 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
     }
     printf("\n")
 
+
     for(i <- 0 until bool_table.length){
       printf("%c ===", needle)//print character 
-      printf("%b", data_bytes2(i))//print character 
+      printf("%c", data_bytes2(i))//print character 
       printf(p" (${needle === data_bytes2(i)})\n")
     }
 
@@ -522,17 +438,17 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
 
     }.elsewhen(bool_table_reduce){//条件４　フラグ配列がまだある時
       index := index + 1.U
-      needle := data_bytes(index)//これを全部共通にできないかなぁ
+      // needle := data_bytes(index)//これを全部共通にできないかなぁ
       printf(p"needle found!\n")
       // state := s_process
       state := s_prep_process
 
-      when(bool_table(7) === true.B){//条件５　この瞬間の状況をsaveする
-        conti_flag := true.B
-        printf(p"conti_flag up!")
-        index_save := index
-        recv_beat2_save := recv_beat2
-      }
+      // when(bool_table(7) === true.B){//条件５　この瞬間の状況をsaveする
+      //   conti_flag := true.B
+      //   printf(p"conti_flag up!")
+      //   index_save := index
+      //   recv_beat2_save := recv_beat2
+      // }
     }
     printf(p"state is $state\n")
     printf(p"finished is $finished\n")
