@@ -68,9 +68,9 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   with HasCoreParameters 
   with HasL1CacheParameters{
 
-  val cacheParams = tileParams.dcache.get
+   val cacheParams = tileParams.dcache.get
 
-  val s_idle  :: s_acq :: s_gnt :: s_prep_acq :: s_prep_acq2 :: s_acq2 :: s_gnt2 :: s_tloop1 :: s_tloop2 :: s_process :: s_conti_process :: s_prep_process :: s_check :: s_check2 :: s_resp :: Nil = Enum(15)
+  val s_idle  :: s_acq :: s_gnt :: s_prep_acq :: s_prep_acq2 :: s_acq2 :: s_gnt2 :: s_process :: s_conti_process :: s_prep_process :: s_check :: s_check2 :: s_resp :: Nil = Enum(13)
   val state = RegInit(s_idle)
   val resp_rd = Reg(chiselTypeOf(io.resp.bits.rd))
   val ret = Reg(UInt(xLen.W))
@@ -87,43 +87,31 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
   val addr_block = addr(coreMaxAddrBits - 1, blockOffset)
   val next_addr = (addr_block + 1.U) << blockOffset.U
 
-  // val recv_data = Reg(UInt(cacheDataBits.W))
-  // val recv_data = RegInit(VecInit(Seq.fill(8, 8)(0.U(64.W))))//(lgCash.., 8)  ２次元配列？
-  val recv_data = RegInit(0.U(512.W)) //64 byte = 512 bit
-  // val recv_data = RegInit(VecInit(Seq.fill(64)(0.U)))
-
+  val recv_data = Reg(UInt(cacheDataBits.W))
   val recv_beat = RegInit(0.U((cacheDataBeats+1).W))
   // val recv_beat = RegInit(0.U(log2Up(cacheDataBeats+1).W))
-  // val data_bytes = VecInit(Seq.tabulate(cacheDataBits/8) { i => recv_data(8 * (i + 1) - 1, 8 * i) })
-  val data_bytes = VecInit(Seq.tabulate(512/8) { i => recv_data(8 * (i + 1) - 1, 8 * i) })
-
+  val data_bytes = VecInit(Seq.tabulate(cacheDataBits/8) { i => recv_data(8 * (i + 1) - 1, 8 * i) })
 
   val index = RegInit(0.U(xLen.W))
   val index_save = RegInit(0.U(xLen.W))
   val recv_beat2_save = RegInit(0.U(log2Up(cacheDataBeats+1).W))
 
+
+
 //addr2 素材
   val addr2 = RegInit(0.U(coreMaxAddrBits.W))
   val offset2 = addr2(blockOffset - 1, 0)
   val addr2_block = addr2(coreMaxAddrBits - 1, blockOffset)
-  // val next_addr2 = (addr2_block + 1.U) << blockOffset.U
   val next_addr2 = (addr2_block + 1.U) << blockOffset.U
 
 
-  // val recv_data2 = Reg(UInt(cacheDataBits.W))
-  // val recv_data2 = RegInit(VecInit(Seq.fill(8, 8)(0.U(64.W))))//(lgCash.., 8)  ２次元配列？
-  val recv_data2 = RegInit(0.U(512.W))
-  // val recv_data2 = RegInit(VecInit(Seq.fill(64)(0.U)))
-  val recv_beat2 = RegInit(0.U((cacheDataBeats+1).W))
+  val recv_data2 = Reg(UInt(cacheDataBits.W))
+  val recv_beat2 = RegInit(0.U(15.W))
   // val recv_beat2 = RegInit(0.U(log2Up(cacheDataBeats+1).W))
-  // val data_bytes2 = VecInit(Seq.tabulate(cacheDataBits/8) { i => recv_data2(8 * (i + 1) - 1, 8 * i) })
-  val data_bytes2 = VecInit(Seq.tabulate(512/8) { i => recv_data2(8 * (i + 1) - 1, 8 * i) })
+  val data_bytes2 = VecInit(Seq.tabulate(cacheDataBits/8) { i => recv_data2(8 * (i + 1) - 1, 8 * i) })
 
-  // val bool_table = RegInit(VecInit(Seq.fill(cacheDataBits/8)(false.B)))
-  // val bool_table_next = RegInit(VecInit(Seq.fill(cacheDataBits/8)(false.B)))
-  val bool_table = RegInit(VecInit(Seq.fill(cacheDataBits)(false.B)))
-  val bool_table_next = RegInit(VecInit(Seq.fill(cacheDataBits)(false.B)))
-
+  val bool_table = RegInit(VecInit(Seq.fill(cacheDataBits/8)(false.B)))
+  val bool_table_next = RegInit(VecInit(Seq.fill(cacheDataBits/8)(false.B)))
   val bool_table_reduce = bool_table.reduce(_ || _)
 
 
@@ -157,14 +145,11 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
     addr := io.cmd.bits.rs1
     addr2 := io.cmd.bits.rs2
     finished := false.B
-    conti_flag := false.B
     ret := 0.U
     resp_rd := io.cmd.bits.inst.rd
     state := s_prep_acq
     printf(p"state is $state\n")
     printf(p"\n")
-        // assert(false.B, "Simulation error")
-
 
   }
 
@@ -201,63 +186,46 @@ class aCustomAccelImp(outer: aCustomAccel)(implicit p: Parameters) extends LazyR
 
 
 
-  // val a_bits_0 = edgesOut.Get(
-  //                       fromSource = 0.U,
-  //                       toAddress = (addr_block << blockOffset) + (8.U * recv_beat),
-  //                       lgSize = 1.U)._2
-
-
-  // val a_bits_1 = edgesOut.Get(
-  //                       fromSource = 1.U,
-  //                       toAddress = (addr2_block << blockOffset) + (8.U * recv_beat2),
-  //                       lgSize = 1.U)._2
-
   val a_bits_0 = edgesOut.Get(
                         fromSource = 0.U,
-                        toAddress = (addr_block << blockOffset),
-                        lgSize = 6.U)._2
+                        toAddress = (addr_block << blockOffset) + (8.U * recv_beat),
+                        lgSize = 1.U)._2
 
 
   val a_bits_1 = edgesOut.Get(
                         fromSource = 1.U,
-                        toAddress = (addr2_block << blockOffset),
-                        lgSize = 6.U)._2
-                        //対数の関係で、6.Uは64byte
+                        toAddress = (addr2_block << blockOffset) + (8.U * recv_beat2),
+                        lgSize = 1.U)._2
+
                         // Portを２つにするか、2個lineを作っちゃうか
 
-val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
 
   when(state === s_prep_acq){
     tl_out.a.bits := a_bits_0
     state := s_acq
-    recv_data := 0.U
-    printf("state === s_prep_acq\n")
+    printf("state === s_prep_sacq\n")
   }
 
   when(state === s_prep_acq2){
     tl_out.a.bits := a_bits_1
     state := s_acq2
-    recv_data2 := 0.U
     printf("state === s_prep_acq2\n")
 
   }
-
-
-  // when(state === s_prep_gnt){}
 
 
 //---------------------s_acq or s_acq2-----------------------
   // when (tl_out.a.fire ||(state === s_acq || state === s_acq)) {
 
   when (tl_out.a.fire ) {
-    printf("addr1 = %b\n", addr)
-    printf("addr2 = %b\n", addr2)
-    printf(p"Got tl_out.a!\n")
+    // printf("addr1 = %b\n", addr)
+    // printf("addr2 = %b\n", addr2)
+    // printf(p"Got tl_out.a!\n")
     state := Mux(state === s_prep_acq, s_gnt, s_gnt2)
-    print("reset recv = ", recv_beat)
 
-    // printf("addr1 + recv_beat2 = %b", (addr2_block << blockOffset) + (8.U * recv_beat2))
-    printf(p"state is $state\n")
+    printf("addr1 + recv_beat2 = %b", (addr2_block << blockOffset) + (8.U * recv_beat2))
+    printf("recv_beat2 is =%b", recv_beat2)
+    // printf(p"state is $state\n")
     printf(p"\n")
 
   }
@@ -266,57 +234,22 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
   val gnt = tl_out.d.bits
 
 //---------------------s_gnt or s_gnt2-----------------------
-  when (tl_out.d.fire) {//state === 2 or state === 4 これエラー
-    printf(p"Got tl_out.d.fire!\n")
-    printf(p"state is $state\n")
+  when (tl_out.d.fire) {//state === 2 or state === 4
+    // printf(p"Got tl_out.d.fire!\n")
+    // printf(p"state is $state\n")
 
     when(state === s_gnt){
-      printf(p"recv_beat + 1.U, recv_data := gnt.data\n")
-      // for(i <- 0 until 7){
-      //   recv_data(8 * (i + 1) - 1, 8 * i) := gnt.data
-      // }
-      recv_data := recv_data | (gnt.data << (d_beat_count << 6))
-      // recv_data := (recv_data << (64.U * d_beat_count)) + gnt.data
-      printf(p"Beat: $d_beat_count, Data: ${Hexadecimal(tl_out.d.bits.data)}\n")
-
-      when(d_last){
-        state := s_prep_acq2
-        printf("Transfer Done\n")
-      }
+      // printf(p"recv_beat + 1.U, recv_data := gnt.data\n")
+      recv_beat := recv_beat + 1.U
+      recv_data := gnt.data
+      state := s_prep_acq2///これを、もし、acq1オンリーだったら、s_checkに行くようなフラグがいるかもしれない。
 
     } .elsewhen(state === s_gnt2){
-      printf(p"recv_beat2 + 1.U, recv_data2 := gnt.data\n")
-      printf("recv_data === gnt.data = %b\n yaya", gnt.data)
-
-      recv_data2 := recv_data2 | (gnt.data << (d_beat_count << 6))
-      // recv_data2 := recv_data2  + gnt.data <<(64.U * d_beat_count)
-      
-      printf(p"Beat: $d_beat_count, Data: ${Hexadecimal(tl_out.d.bits.data)}\n")
-
-      when(d_last){
-        state := s_prep_process
-        printf("Transfer Done\n")
-      }    
+      // printf(p"recv_beat2 + 1.U, recv_data2 := gnt.data\n")
+      recv_beat2 := recv_beat2 + 1.U
+      recv_data2 := gnt.data
+      state := s_prep_process
     }
-  
-
-
-    // when(state === s_gnt){
-    //   printf(p"recv_beat + 1.U, recv_data := gnt.data\n")
-      
-    //   for(i <- 0 until 7){
-    //     recv_data(8 * (i + 1) - 1, 8 * i) := gnt.data //(8 * (i + 1) - 1, 8 * i)
-
-    //   }
-    //   state := s_prep_acq2///これを、もし、acq1オンリーだったら、s_checkに行くようなフラグがいるかもしれない。
-
-    // } .elsewhen(state === s_gnt2){
-    //   printf(p"recv_beat2 + 1.U, recv_data2 := gnt.data\n")
-    //   for(i <- 0 until 7){
-    //     recv_data2(8 * (i + 1) - 1, 8 * i) := gnt.data
-    //   }
-    //   state := s_prep_process
-    // }
     // printf("gnt.data = %b\n", gnt.data)
     // printf("gnt.source = %b\n", gnt.source)
     // printf("save_index === %c ", index_save)//print character 
@@ -324,26 +257,23 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
     // printf(p"\n")
   }
 
+when(state === s_prep_process){
+  needle := data_bytes(index)//これを全部共通にできないかなぁ
+  state := s_process
 
-
-  when(state === s_prep_process){
-    needle := data_bytes(index)//これを全部共通にできないかなぁ
-    state := s_process
-
-    // when(conti_flag && bool_table_reduce){
-    //   printf("index save herez")
-    //   index := index_save
-    //   needle := data_bytes(index_save)
-    // }
+  when(conti_flag && bool_table_reduce){
+    index := index_save
+    needle := data_bytes(index_save)
   }
+}
 //---------------------s_process-----------------------
 
 
   when(state === s_process ){//state === 5
-    printf(p"state is $state\n")
-    printf(p"index === $index\n")
-    printf("needle === %b", needle)
-    printf(p"needle === $needle\n")
+    // printf(p"state is $state\n")
+    // printf(p"index === $index\n")
+    // printf("needle === %b", needle)
+    // printf(p"needle === $needle\n")
 
     when(index === 0.U){ //初期の状態("Hello"のHを見つける)
       for(i <- 0 until bool_table.length - 1){
@@ -353,10 +283,20 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
     }.otherwise{ //初期以降の状態（フラグが立った場所の次行だけを見る）
       for(i <- 0 until bool_table.length - 1){
           bool_table_next(i + 1) := Mux(data_bytes2(i + 1) === needle, bool_table(i), false.B)
+          // when(data_bytes2(i + 1) === needle){
+          //   printf("yuppie")
+          // printf("%b", bool_table(i))
+
+
+          // }
       }
     }
+
+    // index := index + 1.U
+    // for(i <- 0 until bool_table.length - 1){
+    //   bool_table(i) := bool_table_next(i)
+    // }
     state := s_check
-    
   }
 
 
@@ -373,48 +313,41 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
 
 
   when(state === s_check2){
-    printf("recv_data is =%b", recv_data)
-    printf("recv_data2 is =%b", recv_data2)
-
-    printf(p"state is $state\n")
-
-    printf("recv_data")
+    // printf(p"state is $state\n")
     
-    printf("bool_table =")
+    // printf("bool_table =")
 
-    for (i <- 0 until bool_table.length) {
-      printf("%b", bool_table(i))
-    }
-    printf("\n")
+    // for (i <- 0 until bool_table.length) {
+    //   printf("%b", bool_table(i))
+    // }
+    // printf("\n")
 
-    printf("bool_table_next =")
+    // printf("bool_table_next =")
 
-    for (i <- 0 until bool_table_next.length) {
-      printf("%b", bool_table_next(i))
-    }
-    printf("\n")
+    // for (i <- 0 until bool_table_next.length) {
+    //   printf("%b", bool_table_next(i))
+    // }
+    // printf("\n")
 
+    // for(i <- 0 until bool_table.length){
+    //   printf("%c ===", needle)//print character 
+    //   printf("%c", data_bytes2(i))//print character 
+    //   printf(p"       ${needle === data_bytes2(i)}\n")
+    // }
 
-    for(i <- 0 until bool_table.length){
-      printf("%c ===", needle)//print character 
-      printf("%c", data_bytes2(i))//print character 
-      printf(p" (${needle === data_bytes2(i)})\n")
-    }
-
-    printf(p"bool_table_reduce =  ${bool_table_reduce}\n")//print character 
+    // printf(p"bool_table_reduce =  ${bool_table_reduce}\n")//print character 
     
 
     when(needle === 0.U){//条件１　文字列がNULLに到達した場合
       printf("word NULL was reached. Word was found")
       // ret := 1.U
       state := s_resp
-
     }.elsewhen(zero_found2 && ~(bool_table_reduce)){//条件２　調査文字列にNULLが現れ、条件３を満たす場合
         printf(p"zero_found2 ON! Sentence contained NULL\n")
         state := s_resp
 
     }.elsewhen(~(bool_table_reduce)){//条件３フラグ配列が全て0になる
-        printf(p"needle not found!\n")
+        // printf(p"needle not found!\n")
         index := 0.U
 
         when(conti_flag){
@@ -423,37 +356,91 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
           conti_flag := false.B
 
         }
-
-        addr2 := next_addr2
-        state := s_prep_acq2
-
-        // when(recv_beat2 === cacheDataBeats.U){
-        //   addr2 := next_addr2
-        //   state := s_prep_acq2
-        //   recv_beat2 := 0.U
-        // }.otherwise{
-        //   recv_beat2 := recv_beat2 + 1.U
-        //   state := 
-        // }
+        state := s_prep_acq2 
 
     }.elsewhen(bool_table_reduce){//条件４　フラグ配列がまだある時
       index := index + 1.U
-      // needle := data_bytes(index)//これを全部共通にできないかなぁ
+      needle := data_bytes(index)//これを全部共通にできないかなぁ
       printf(p"needle found!\n")
       // state := s_process
       state := s_prep_process
 
-      // when(bool_table(7) === true.B){//条件５　この瞬間の状況をsaveする
-      //   conti_flag := true.B
-      //   printf(p"conti_flag up!")
-      //   index_save := index
-      //   recv_beat2_save := recv_beat2
-      // }
+      when(bool_table(7) === true.B){//条件５　この瞬間の状況をsaveする
+        conti_flag := true.B
+        printf(p"conti_flag up!")
+        index_save := index
+        recv_beat2_save := recv_beat2
+      }
     }
     printf(p"state is $state\n")
     printf(p"finished is $finished\n")
     printf(p"\n")
   }
+
+
+
+    // when(zero_found2 && ~(bool_table_reduce)){
+    //   printf(p"zero_found2 ON! Sentence contained NULL\n")
+    //   state := s_resp
+    // }.otherwise{// sentence contained \0. Go to response
+    //   when(needle === 0.U){
+    //     printf("word NULL was reached. Word was found")
+    //     ret := 1.U
+    //     state := s_resp
+    //   }.elsewhen(needle_found && bool_table_reduce){
+    //     index := index + 1.U
+    //     needle := data_bytes(index)//これを全部共通にできないかなぁ
+    //     printf(p"needle found!\n")
+    //     // state := s_process
+    //     state := s_prep_process
+
+    //     when(bool_table(7) === true.B){//この瞬間の状況をsaveする
+    //       conti_flag := true.B
+    //       printf(p"conti_flag up!")
+    //       index_save := index
+    //       recv_beat2_save := recv_beat2
+    //     }
+        
+
+    //   }.otherwise{
+    //     printf(p"needle not found!\n")
+    //     index := 0.U
+    //     when(conti_flag){
+    //       recv_beat2 := recv_beat2_save
+    //       printf(p"put back recv_beat2_save")
+    //       conti_flag := false.B
+
+    //     }
+    //     state := s_prep_acq2 /////////////////acq2(s_prep_acq)にするのかな？
+
+    //     // when(recv_beat === cacheDataBeats.U){
+    //     //     printf(p"recv_beat === cacheDataBeats.U ON!")
+    //     //     recv_beat := 0.U
+    //     //     addr := next_addr
+    //     //     // state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_prep_acq2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
+    //     //     state := Mux(recv_beat2 === cacheDataBeats.U, s_resp, s_prep_acq2)//recv_beat2の続きがあるかもしれないから。それと、これ同時に条件満たさなくない？
+
+
+    //     // } .elsewhen(recv_beat2 === cacheDataBeats.U){
+    //     //     printf(p"recv_beat2 === cacheDataBeats.U ON!")
+    //     //     recv_beat2 := 0.U
+    //     //     when(conti_flag){
+    //     //       addr2 := next_addr2
+    //     //     }
+    //     //     state := Mux(finished, s_resp, s_prep_acq)
+    //     // }
+    //   }
+
+    // when(zero_found){
+    //   printf(p"zero_found ON!")
+    //   // when(bool_table(cacheDataBeats)){ //when word was cut halfway
+    //   //     state := s_conti_process
+    //   // }
+    //   when(bool_table.slice(0, cacheDataBeats - 1).reduce(_ || _)){//word was found. Go to response
+    //       finished := true.B
+    //       // addr_count := index
+    //   }
+    // }
 
 
 // Response Here
@@ -489,7 +476,6 @@ val (d_first, d_last, d_done, d_beat_count) = edgesOut.count(tl_out.d)
   tl_out.b.valid := false.B
   tl_out.c.valid := false.B
   tl_out.e.valid := false.B
-
 }
 
 
